@@ -5,6 +5,8 @@ import lombok.Data;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "relatorio")
@@ -24,6 +26,12 @@ public class Relatorio {
 
     @Column(name = "data_torneio", nullable = false)
     private LocalDate dataTorneio;
+
+    @Column(name = "numero_participantes")
+    private Integer numeroParticipantes;
+
+    @OneToMany(mappedBy = "relatorio", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<RelatorioJogador> jogadores = new ArrayList<>();
 
     @Column(nullable = false)
     private byte[] imagem;

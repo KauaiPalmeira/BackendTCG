@@ -1,10 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import DatePicker from 'react-datepicker';
 import "react-datepicker/dist/react-datepicker.css";
 import { format } from 'date-fns';
+import { reportService } from '../services/reportService';
+import './ReportForm.css';
 
 export default function ReportForm() {
   const [selectedDate, setSelectedDate] = useState(null);
+  const [tiposTorneio, setTiposTorneio] = useState([]);
+  const [locais, setLocais] = useState([]);
+  const [decks, setDecks] = useState([]);
   const [formData, setFormData] = useState({
     tournament: '',
     location: '',
@@ -27,6 +32,28 @@ export default function ReportForm() {
     deck8: '',
   });
 
+  // Carregar dados iniciais
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [tiposTorneioData, locaisData, decksData] = await Promise.all([
+          reportService.getTiposTorneio(),
+          reportService.getLocais(),
+          reportService.getDecks()
+        ]);
+
+        setTiposTorneio(tiposTorneioData);
+        setLocais(locaisData);
+        setDecks(decksData);
+      } catch (error) {
+        console.log('%c❌ Erro ao carregar dados iniciais', 'color: red; font-weight: bold;');
+        console.log('%c👉 Verifique se o backend está rodando em localhost:8080', 'color: orange;');
+      }
+    };
+
+    fetchData();
+  }, []);
+
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({
@@ -35,185 +62,204 @@ export default function ReportForm() {
     }));
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    // TODO: Implement form submission
-    console.log(formData);
+    
+    try {
+      // Validações básicas
+      if (!selectedDate) {
+        console.log('%c❌ Erro: Data do torneio não selecionada', 'color: red; font-weight: bold;');
+        return;
+      }
+
+      if (!formData.tournament) {
+        console.log('%c❌ Erro: Tipo de torneio não selecionado', 'color: red; font-weight: bold;');
+        return;
+      }
+
+      if (!formData.location) {
+        console.log('%c❌ Erro: Local não selecionado', 'color: red; font-weight: bold;');
+        return;
+      }
+
+      if (!formData.players || parseInt(formData.players) <= 0) {
+        console.log('%c❌ Erro: Número de participantes inválido', 'color: red; font-weight: bold;');
+        return;
+      }
+
+      // Preparar os jogadores
+      const jogadores = [];
+      let jogadoresIncompletos = false;
+
+      for (let i = 1; i <= 8; i++) {
+        const nomeJogador = formData[`player${i}`];
+        const deckId = parseInt(formData[`deck${i}`]);
+        
+        if (!nomeJogador || !deckId) {
+          console.log(`%c❌ Erro: Jogador ${i} incompleto. Nome e deck são obrigatórios.`, 'color: red; font-weight: bold;');
+          jogadoresIncompletos = true;
+          continue;
+        }
+
+        jogadores.push({
+          nomeJogador,
+          deckId,
+          posicao: i
+        });
+      }
+
+      if (jogadoresIncompletos || jogadores.length !== 8) {
+        console.log('%c❌ Erro: Todos os 8 jogadores devem ser preenchidos com nome e deck', 'color: red; font-weight: bold;');
+        return;
+      }
+
+      // Preparar o payload no formato esperado pelo backend
+      const payload = {
+        tipoTorneioId: parseInt(formData.tournament),
+        localId: parseInt(formData.location),
+        dataTorneio: format(selectedDate, 'yyyy-MM-dd'),
+        numeroParticipantes: parseInt(formData.players),
+        jogadores
+      };
+
+      // Enviar para o backend
+      await reportService.createRelatorio(payload);
+      
+      // Limpar formulário após sucesso
+      setSelectedDate(null);
+      setFormData({
+        tournament: '',
+        location: '',
+        players: '',
+        player1: '',
+        deck1: '',
+        player2: '',
+        deck2: '',
+        player3: '',
+        deck3: '',
+        player4: '',
+        deck4: '',
+        player5: '',
+        deck5: '',
+        player6: '',
+        deck6: '',
+        player7: '',
+        deck7: '',
+        player8: '',
+        deck8: '',
+      });
+      
+    } catch (error) {
+      console.log('%c❌ Erro ao enviar relatório', 'color: red; font-weight: bold;');
+      console.log('%c👉 Detalhes:', 'color: orange;', error.message);
+    }
   };
 
   return (
-    <div style={{ padding: '20px' }}>
-      <h1 style={{
-        fontFamily: '"Open Sans Hebrew Condensed", sans-serif',
-        fontSize: '24px',
-        fontWeight: 'bold',
-        marginBottom: '20px'
-      }}>
-        REPORTAR TORNEIO
-      </h1>
-
-      <div style={{
-        backgroundColor: '#FFFFFF',
-        padding: '30px',
-        borderRadius: '8px',
-        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-      }}>
-        <div style={{ display: 'flex', gap: '40px' }}>
-          {/* Left side */}
-          <div style={{ flex: 1 }}>
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{ display: 'block', marginBottom: '8px', fontFamily: '"Open Sans Hebrew Condensed", sans-serif' }}>TORNEIO</label>
-              <select
-                name="tournament"
-                value={formData.tournament}
-                onChange={handleInputChange}
-                style={{
-                  width: '100%',
-                  padding: '10px',
-                  border: '1px solid #E8E8E8',
-                  borderRadius: '4px',
-                  backgroundColor: '#E8E8E8',
-                  color: '#353535',
-                  appearance: 'none',
-                  backgroundImage: 'url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'currentColor\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3e%3cpolyline points=\'6 9 12 15 18 9\'%3e%3c/polyline%3e%3c/svg%3e")',
-                  backgroundRepeat: 'no-repeat',
-                  backgroundPosition: 'right 10px center',
-                  backgroundSize: '20px'
-                }}
-              >
-                <option value="">Selecione um torneio</option>
-                {/* TODO: Add options from backend */}
-              </select>
-            </div>
-
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{ display: 'block', marginBottom: '8px', fontFamily: '"Open Sans Hebrew Condensed", sans-serif' }}>LOCAL</label>
-              <select
-                name="location"
-                value={formData.location}
-                onChange={handleInputChange}
-                style={{
-                  width: '100%',
-                  padding: '10px',
-                  border: '1px solid #E8E8E8',
-                  borderRadius: '4px',
-                  backgroundColor: '#E8E8E8',
-                  color: '#353535',
-                  appearance: 'none',
-                  backgroundImage: 'url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'currentColor\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3e%3cpolyline points=\'6 9 12 15 18 9\'%3e%3c/polyline%3e%3c/svg%3e")',
-                  backgroundRepeat: 'no-repeat',
-                  backgroundPosition: 'right 10px center',
-                  backgroundSize: '20px'
-                }}
-              >
-                <option value="">Selecione um local</option>
-                {/* TODO: Add options from backend */}
-              </select>
-            </div>
-
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{ display: 'block', marginBottom: '8px', fontFamily: '"Open Sans Hebrew Condensed", sans-serif' }}>DIA DO TORNEIO</label>
-              <DatePicker
-                selected={selectedDate}
-                onChange={(date) => setSelectedDate(date)}
-                dateFormat="dd/MM/yyyy"
-                style={{
-                  width: '100%',
-                  padding: '10px',
-                  border: '1px solid #E8E8E8',
-                  borderRadius: '4px',
-                  backgroundColor: '#E8E8E8',
-                  color: '#353535'
-                }}
-              />
-            </div>
-
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{ display: 'block', marginBottom: '8px', fontFamily: '"Open Sans Hebrew Condensed", sans-serif' }}>Q° DE PLAYERS</label>
-              <input
-                type="number"
-                name="players"
-                value={formData.players}
-                onChange={handleInputChange}
-                style={{
-                  width: '100%',
-                  padding: '10px',
-                  border: '1px solid #E8E8E8',
-                  borderRadius: '4px',
-                  backgroundColor: '#E8E8E8',
-                  color: '#353535'
-                }}
-              />
-            </div>
+    <div className="report-form-container">
+      <form onSubmit={handleSubmit} className="report-form">
+        <h2 className="report-form-title">REPORTAR TORNEIO</h2>
+        
+        <div className="form-grid">
+          <div className="form-section">
+            <label className="form-label">TORNEIO</label>
+            <select
+              name="tournament"
+              value={formData.tournament}
+              onChange={handleInputChange}
+              className="form-select"
+            >
+              <option value="">Selecione um torneio</option>
+              {tiposTorneio.map(tipo => (
+                <option key={tipo.id} value={tipo.id}>
+                  {tipo.nome}
+                </option>
+              ))}
+            </select>
           </div>
 
-          {/* Right side */}
-          <div style={{ flex: 1 }}>
-            {[1, 2, 3, 4, 5, 6, 7, 8].map((num) => (
-              <div key={num} style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
-                <div style={{ flex: 1 }}>
-                  <label style={{ display: 'block', marginBottom: '8px', fontFamily: '"Open Sans Hebrew Condensed", sans-serif' }}>PLAYER {num}°</label>
-                  <input
-                    type="text"
-                    name={`player${num}`}
-                    value={formData[`player${num}`]}
-                    onChange={handleInputChange}
-                    style={{
-                      width: '100%',
-                      padding: '10px',
-                      border: '1px solid #E8E8E8',
-                      borderRadius: '4px',
-                      backgroundColor: '#E8E8E8',
-                      color: '#353535'
-                    }}
-                  />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <label style={{ display: 'block', marginBottom: '8px', fontFamily: '"Open Sans Hebrew Condensed", sans-serif' }}>DECK</label>
-                  <select
-                    name={`deck${num}`}
-                    value={formData[`deck${num}`]}
-                    onChange={handleInputChange}
-                    style={{
-                      width: '100%',
-                      padding: '10px',
-                      border: '1px solid #E8E8E8',
-                      borderRadius: '4px',
-                      backgroundColor: '#E8E8E8',
-                      color: '#353535',
-                      appearance: 'none',
-                      backgroundImage: 'url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'currentColor\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3e%3cpolyline points=\'6 9 12 15 18 9\'%3e%3c/polyline%3e%3c/svg%3e")',
-                      backgroundRepeat: 'no-repeat',
-                      backgroundPosition: 'right 10px center',
-                      backgroundSize: '20px'
-                    }}
-                  >
-                    <option value="">Selecione um deck</option>
-                    {/* TODO: Add options from backend */}
-                  </select>
-                </div>
-              </div>
-            ))}
+          <div className="form-section">
+            <label className="form-label">LOCAL</label>
+            <select
+              name="location"
+              value={formData.location}
+              onChange={handleInputChange}
+              className="form-select"
+            >
+              <option value="">Selecione um local</option>
+              {locais.map(local => (
+                <option key={local.id} value={local.id}>
+                  {local.nome}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-section">
+            <label className="form-label">DIA DO TORNEIO</label>
+            <DatePicker
+              selected={selectedDate}
+              onChange={(date) => setSelectedDate(date)}
+              dateFormat="dd/MM/yyyy"
+              className="form-input"
+            />
+          </div>
+
+          <div className="form-section">
+            <label className="form-label">Qº DE PLAYERS</label>
+            <input
+              type="number"
+              name="players"
+              value={formData.players}
+              onChange={handleInputChange}
+              className="form-input"
+              min="8"
+              max="999"
+            />
           </div>
         </div>
 
-        <button
-          onClick={handleSubmit}
-          style={{
-            backgroundColor: '#031D4D',
-            color: '#FFFFFF',
-            padding: '12px 24px',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            fontFamily: '"Open Sans Hebrew Condensed", sans-serif',
-            fontSize: '16px',
-            marginTop: '20px'
-          }}
-        >
-          GERAR REPORT
+        <div className="players-grid">
+          {[...Array(8)].map((_, index) => {
+            const playerNum = index + 1;
+            return (
+              <div key={playerNum} className="player-section">
+                <div>
+                  <label className="form-label">PLAYER {playerNum}º</label>
+                  <input
+                    type="text"
+                    name={`player${playerNum}`}
+                    value={formData[`player${playerNum}`]}
+                    onChange={handleInputChange}
+                    className="form-input"
+                    placeholder="Nome do jogador"
+                  />
+                </div>
+                <div>
+                  <label className="form-label">DECK</label>
+                  <select
+                    name={`deck${playerNum}`}
+                    value={formData[`deck${playerNum}`]}
+                    onChange={handleInputChange}
+                    className="form-select"
+                  >
+                    <option value="">Selecione um deck</option>
+                    {decks.map(deck => (
+                      <option key={deck.id} value={deck.id}>
+                        {deck.nome}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <button type="submit" className="submit-button">
+          Gerar Relatório
         </button>
-      </div>
+      </form>
     </div>
   );
 }

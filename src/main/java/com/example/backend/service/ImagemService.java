@@ -2,6 +2,8 @@ package com.example.backend.service;
 
 import com.example.backend.entity.Relatorio;
 import com.example.backend.entity.RelatorioJogador;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
@@ -15,6 +17,7 @@ import java.time.format.DateTimeFormatter;
 
 @Service
 public class ImagemService {
+    private static final Logger logger = LoggerFactory.getLogger(ImagemService.class);
 
     private static final int IMAGE_WIDTH = 274;
     private static final int IMAGE_HEIGHT = 175;
@@ -44,6 +47,7 @@ public class ImagemService {
     public byte[] gerarImagemRelatorio(Relatorio relatorio, List<RelatorioJogador> jogadores) throws IOException {
         // Carregar o template do relatório
         String templatePath = "/templates/Template Report - League Cup.png";
+        logger.info("Carregando template do relatório: {}", templatePath);
         BufferedImage template = loadImage(templatePath);
 
         BufferedImage output = new BufferedImage(template.getWidth(), template.getHeight(), BufferedImage.TYPE_INT_ARGB);
@@ -65,9 +69,34 @@ public class ImagemService {
         // Desenhar jogadores e decks
         for (int i = 0; i < Math.min(jogadores.size(), 8); i++) {
             RelatorioJogador rj = jogadores.get(i);
-            // Gerar caminho da imagem com base no nome do deck
-            String imagemCaminho = "/templates/" + rj.getDeck().getNome().toLowerCase().replace(" ", "_") + ".png";
-            BufferedImage pokemonImage = loadImage(imagemCaminho);
+            // Tentar carregar a imagem com diferentes variações do nome
+            BufferedImage pokemonImage = null;
+            String nomeDeck = rj.getDeck().getNome();
+            String[] tentativas = {
+                nomeDeck, // Nome original
+                nomeDeck.toLowerCase(), // Minúsculo
+                nomeDeck.replace(" ", "_"), // Com underscore
+                nomeDeck.toLowerCase().replace(" ", "_") // Minúsculo com underscore
+            };
+
+            IOException lastError = null;
+            for (String tentativa : tentativas) {
+                String imagemCaminho = "/templates/" + tentativa + ".png";
+                try {
+                    logger.info("Tentando carregar imagem do deck: {}", imagemCaminho);
+                    pokemonImage = loadImage(imagemCaminho);
+                    break; // Se encontrou a imagem, sai do loop
+                } catch (IOException e) {
+                    lastError = e;
+                    logger.debug("Tentativa falhou: {}", e.getMessage());
+                }
+            }
+
+            if (pokemonImage == null) {
+                logger.error("Não foi possível encontrar imagem para o deck: {}", nomeDeck);
+                throw new IllegalArgumentException("Imagem não encontrada para o deck '" + nomeDeck + 
+                    "'. Tentativas: " + String.join(", ", tentativas));
+            }
 
             int textX = TEXT_COORDS[i][0];
             int nomeY = TEXT_COORDS[i][1];
@@ -79,7 +108,7 @@ public class ImagemService {
             g.setFont(FONT_NOME);
             FontMetrics metricsNome = g.getFontMetrics(FONT_NOME);
             int adjustedNomeY = nomeY + metricsNome.getAscent() + TEXT_Y_OFFSET;
-            g.drawString(rj.getJogador().getNome(), textX, adjustedNomeY);
+            g.drawString(rj.getNomeJogador(), textX, adjustedNomeY);
 
             g.setFont(FONT_DECK);
             FontMetrics metricsDeck = g.getFontMetrics(FONT_DECK);
@@ -95,9 +124,14 @@ public class ImagemService {
     }
 
     private BufferedImage loadImage(String path) throws IOException {
-        BufferedImage image = ImageIO.read(getClass().getResourceAsStream(path));
+        var inputStream = getClass().getResourceAsStream(path);
+        if (inputStream == null) {
+            throw new IOException("Arquivo não encontrado no classpath: " + path);
+        }
+        
+        BufferedImage image = ImageIO.read(inputStream);
         if (image == null) {
-            throw new IOException("Imagem não encontrada no classpath: " + path);
+            throw new IOException("Não foi possível ler a imagem: " + path);
         }
         return image;
     }

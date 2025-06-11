@@ -16,8 +16,11 @@ public class RelatorioJogador {
     private Relatorio relatorio;
 
     @ManyToOne
-    @JoinColumn(name = "jogador_id", nullable = false)
+    @JoinColumn(name = "jogador_id", nullable = true)
     private Jogador jogador;
+
+    @Column(name = "nome_jogador", nullable = false)
+    private String nomeJogador;
 
     @ManyToOne
     @JoinColumn(name = "deck_id", nullable = false)
