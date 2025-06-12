@@ -5,28 +5,34 @@ import com.example.backend.dto.RelatorioResponseDTO;
 import com.example.backend.entity.Relatorio;
 import com.example.backend.service.RelatorioService;
 import com.example.backend.service.ImagemService;
+import com.example.backend.service.CachedImageService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.http.HttpStatus;
 import java.io.IOException;
-import java.util.List;
-import java.util.stream.Collectors;
-import java.util.Base64;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 @RestController
 @RequestMapping("/api/relatorios")
-@CrossOrigin(origins = "*")
+@CrossOrigin(origins = {
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://localhost:5175"
+})
 public class RelatorioController {
 
     private final RelatorioService relatorioService;
     private final ImagemService imagemService;
+    private final CachedImageService cachedImageService;
     private static final Logger logger = LoggerFactory.getLogger(RelatorioController.class);
 
-    public RelatorioController(RelatorioService relatorioService, ImagemService imagemService) {
+    public RelatorioController(RelatorioService relatorioService, 
+                             ImagemService imagemService,
+                             CachedImageService cachedImageService) {
         this.relatorioService = relatorioService;
         this.imagemService = imagemService;
+        this.cachedImageService = cachedImageService;
     }
 
     @PostMapping
@@ -36,6 +42,10 @@ public class RelatorioController {
                        relatorioDTO.tipoTorneioId(), relatorioDTO.dataTorneio());
             
             RelatorioResponseDTO response = relatorioService.criarRelatorio(relatorioDTO);
+            
+            // Cache the new report immediately
+            Relatorio relatorio = relatorioService.findById(response.getId());
+            cachedImageService.cacheReport(relatorio);
             
             logger.info("Relatório criado com sucesso. ID: {}", response.getId());
             
@@ -60,15 +70,77 @@ public class RelatorioController {
         }
     }
 
-    @GetMapping("/ultimos")
-    public ResponseEntity<?> getUltimosRelatorios() {
+    @GetMapping("/sequencial")
+    public ResponseEntity<?> getRelatorioSequencial(@RequestParam(required = false) Long lastLoadedId) {
         try {
-            logger.info("Buscando últimos relatórios");
-            List<Relatorio> relatorios = relatorioService.buscarUltimosRelatorios();
+            logger.info("Recebida requisição para /sequencial. LastLoadedId: {}", lastLoadedId);
             
-            List<RelatorioResponseDTO> response = relatorios.stream()
+            Relatorio relatorio = relatorioService.buscarProximoRelatorio(lastLoadedId);
+            if (relatorio == null) {
+                logger.info("Nenhum relatório encontrado para lastLoadedId: {}", lastLoadedId);
+                return ResponseEntity.ok().build();
+            }
+            
+            logger.info("Relatório encontrado - ID: {}, Local: {}, Data: {}", 
+                       relatorio.getId(), 
+                       relatorio.getLocal().getNome(), 
+                       relatorio.getDataTorneio());
+
+            String base64 = cachedImageService.getLowQualityImage(relatorio);
+            RelatorioResponseDTO response = new RelatorioResponseDTO(
+                relatorio.getId(),
+                relatorio.getLocal().getNome(),
+                relatorio.getDataTorneio(),
+                base64
+            );
+
+            logger.info("Retornando relatório com ID: {}", relatorio.getId());
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            logger.error("Erro ao buscar relatório sequencial: {}", e.getMessage(), e);
+            return ResponseEntity
+                    .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ErrorResponse("Erro interno", "Erro ao buscar relatório"));
+        }
+    }
+
+    @GetMapping("/{id}/high-quality")
+    public ResponseEntity<?> getHighQualityImage(@PathVariable Long id) {
+        try {
+            Relatorio relatorio = relatorioService.findById(id);
+            if (relatorio == null) {
+                return ResponseEntity.notFound().build();
+            }
+
+            String base64 = cachedImageService.getHighQualityImage(relatorio);
+            return ResponseEntity.ok(new RelatorioResponseDTO(
+                relatorio.getId(),
+                relatorio.getLocal().getNome(),
+                relatorio.getDataTorneio(),
+                base64
+            ));
+        } catch (Exception e) {
+            logger.error("Error getting high quality image for report {}", id, e);
+            return ResponseEntity
+                    .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ErrorResponse("Erro interno", "Erro ao buscar imagem de alta qualidade"));
+        }
+    }
+
+    @GetMapping("/todos")
+    public ResponseEntity<?> getTodosRelatorios() {
+        try {
+            logger.info("Recebida requisição para /todos (todos os relatórios em memória)");
+            var relatorios = relatorioService.getRelatoriosCache();
+            var dtos = relatorios.stream()
                 .map(relatorio -> {
-                    String base64 = Base64.getEncoder().encodeToString(relatorio.getImagem());
+                    String base64 = null;
+                    try {
+                        base64 = cachedImageService.getLowQualityImage(relatorio);
+                    } catch (Exception e) {
+                        logger.error("Erro ao gerar imagem base64 para relatório {}", relatorio.getId(), e);
+                    }
                     return new RelatorioResponseDTO(
                         relatorio.getId(),
                         relatorio.getLocal().getNome(),
@@ -76,15 +148,12 @@ public class RelatorioController {
                         base64
                     );
                 })
-                .collect(Collectors.toList());
-
-            logger.info("Retornando {} relatórios", response.size());
-            return ResponseEntity.ok(response);
+                .toList();
+            return ResponseEntity.ok(dtos);
         } catch (Exception e) {
-            logger.error("Erro ao buscar últimos relatórios: {}", e.getMessage(), e);
-            return ResponseEntity
-                    .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(new ErrorResponse("Erro interno", "Erro ao buscar relatórios"));
+            logger.error("Erro ao buscar todos os relatórios: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(new ErrorResponse("Erro interno", "Erro ao buscar todos os relatórios"));
         }
     }
 

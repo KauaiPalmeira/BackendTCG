@@ -123,8 +123,34 @@ export default function ReportForm() {
       };
 
       // Enviar para o backend
-      await reportService.createRelatorio(payload);
-      
+      const created = await reportService.createRelatorio(payload);
+
+      // Baixar imagem em alta qualidade automaticamente
+      if (created && created.id) {
+        try {
+          const imageResponse = await reportService.getHighQualityImage(created.id);
+          const base64 = imageResponse.imagemBase64;
+          if (base64) {
+            const byteCharacters = atob(base64);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+              byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: 'image/png' });
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', 'relatorio.png');
+            document.body.appendChild(link);
+            link.click();
+            link.parentNode.removeChild(link);
+          }
+        } catch (e) {
+          console.log('%c❌ Erro ao baixar imagem do relatório', 'color: red; font-weight: bold;');
+        }
+      }
+
       // Limpar formulário após sucesso
       setSelectedDate(null);
       setFormData({

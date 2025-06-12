@@ -1,10 +1,14 @@
 import axios from 'axios';
 
-const api = axios.create({
+// Criar uma instância do axios com configuração personalizada
+export const api = axios.create({
   baseURL: 'http://localhost:8080/api',
   headers: {
     'Content-Type': 'application/json',
-  }
-});
-
-export default api; 
+    'Accept': 'application/json'
+  },
+  // Não fazer requisições automáticas
+  validateStatus: status => status >= 200 && status < 300,
+  // Timeout de 30 segundos
+  timeout: 30000
+}); 

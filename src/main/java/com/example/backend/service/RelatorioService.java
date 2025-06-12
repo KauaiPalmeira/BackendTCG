@@ -12,9 +12,13 @@ import java.util.Base64;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import jakarta.annotation.PostConstruct;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Service
 public class RelatorioService {
@@ -25,11 +29,14 @@ public class RelatorioService {
     private final DeckRepository deckRepository;
     private final ImagemService imagemService;
     private final PontosService pontosService;
+    private final CachedImageService cachedImageService;
+    private static final Logger log = LoggerFactory.getLogger(RelatorioService.class);
 
     // Cache maps
     private volatile Map<Long, Local> localCache;
     private volatile Map<Long, TipoTorneio> tipoTorneioCache;
     private volatile Map<Long, Deck> deckCache;
+    private final List<Relatorio> relatoriosCache = new java.util.ArrayList<>();
 
     public RelatorioService(
             RelatorioRepository relatorioRepository,
@@ -37,13 +44,15 @@ public class RelatorioService {
             TipoTorneioRepository tipoTorneioRepository,
             DeckRepository deckRepository,
             ImagemService imagemService,
-            PontosService pontosService) {
+            PontosService pontosService,
+            CachedImageService cachedImageService) {
         this.relatorioRepository = relatorioRepository;
         this.localRepository = localRepository;
         this.tipoTorneioRepository = tipoTorneioRepository;
         this.deckRepository = deckRepository;
         this.imagemService = imagemService;
         this.pontosService = pontosService;
+        this.cachedImageService = cachedImageService;
         initializeCaches();
     }
 
@@ -125,9 +134,62 @@ public class RelatorioService {
         return relatorioRepository.findAllWithRelationships(pageRequest).getContent();
     }
 
+    public Relatorio findById(Long id) {
+        return relatorioRepository.findByIdWithLocal(id)
+            .orElseThrow(() -> new IllegalArgumentException("Relatório não encontrado"));
+    }
+
     // Method to refresh caches if needed
     @Transactional(readOnly = true)
     public void refreshCaches() {
         initializeCaches();
+    }
+
+    public Relatorio buscarProximoRelatorio(Long lastLoadedId) {
+        if (lastLoadedId == null) {
+            // Se não houver ID anterior, retorna o mais recente
+            PageRequest pageRequest = PageRequest.of(0, 1);
+            List<Relatorio> relatorios = relatorioRepository.findMostRecentRelatorio(pageRequest);
+            return relatorios.isEmpty() ? null : relatorios.get(0);
+        } else {
+            // Se houver ID anterior, retorna o próximo mais antigo
+            PageRequest pageRequest = PageRequest.of(0, 1);
+            List<Relatorio> relatorios = relatorioRepository.findNextRelatorio(lastLoadedId, pageRequest);
+            return relatorios.isEmpty() ? null : relatorios.get(0);
+        }
+    }
+
+    public List<Relatorio> buscarTodosRelatorios() {
+        return relatorioRepository.findAllWithRelationships();
+    }
+
+    @PostConstruct
+    public void preloadReports() {
+        log.info("Pré-carregando até 20 relatórios e imagens em memória...");
+        var pageRequest = org.springframework.data.domain.PageRequest.of(0, 20);
+        List<com.example.backend.dto.RelatorioSimplesDTO> relatorios = relatorioRepository.findTop20Simples(pageRequest);
+        relatoriosCache.clear();
+        int count = 0;
+        for (var dto : relatorios) {
+            try {
+                var relatorio = new com.example.backend.entity.Relatorio();
+                relatorio.setId(dto.id());
+                var local = new com.example.backend.entity.Local();
+                local.setNome(dto.local());
+                relatorio.setLocal(local);
+                relatorio.setDataTorneio(dto.dataTorneio());
+                relatorio.setImagem(dto.imagem());
+                relatoriosCache.add(relatorio);
+                cachedImageService.cacheReport(relatorio);
+                count++;
+            } catch (Exception e) {
+                log.error("Erro ao cachear relatório {}: {}", dto.id(), e.getMessage());
+            }
+        }
+        log.info("Pré-carregados {} relatórios e imagens em memória.", count);
+    }
+
+    public List<Relatorio> getRelatoriosCache() {
+        return relatoriosCache;
     }
 }
